@@ -1,11 +1,14 @@
 # SwiftFind
 
+[![release](https://img.shields.io/github/v/release/Sword00/SwiftFind)](https://github.com/Sword00/SwiftFind/releases/latest)
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
 ![size](https://img.shields.io/badge/size-217%20KB-brightgreen)
 
 **双击 Ctrl，弹出一个搜索框；输入几个字母，全盘的文件和应用都在里面；回车打开。**
 
 没有主界面，没有启动动画，也不占托盘。平时它等于不存在，你要用它的时候按两下 Ctrl。
+
+**[下载 v1.0.0](https://github.com/Sword00/SwiftFind/releases/latest)** —— 217 KB，Windows 10 / 11，双击即用。
 
 ![SwiftFind 搜索框](docs/screenshot.png)
 
