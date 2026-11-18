@@ -1,6 +1,7 @@
 // SwiftFind - a tiny Listary-like launcher for Windows
 // Single-file Win32 app: full-disk index + Start Menu apps + fuzzy search
 // Build: g++ -O2 -s -municode -mwindows -std=c++17 main.cpp res.o -o SwiftFind.exe ...
+// SPDX-License-Identifier: MIT
 
 #define _WIN32_WINNT 0x0A00
 #define WIN32_LEAN_AND_MEAN

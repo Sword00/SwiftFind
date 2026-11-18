@@ -3,6 +3,7 @@
 [![release](https://img.shields.io/github/v/release/Sword00/SwiftFind)](https://github.com/Sword00/SwiftFind/releases/latest)
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
 ![size](https://img.shields.io/badge/size-217%20KB-brightgreen)
+![license](https://img.shields.io/badge/license-MIT-blue)
 
 **双击 Ctrl，弹出一个搜索框；输入几个字母，全盘的文件和应用都在里面；回车打开。**
 
@@ -94,3 +95,7 @@ SwiftFind.exe --settings     # 直接打开设置面板
 ---
 
 `src/main.cpp` 是整个程序（约 1000 行）。`tools/` 里是开发时用来验证的小工具——截图、模拟按键、校验图标、枚举窗口，不影响程序本身，感兴趣可以看看。
+
+## 许可证
+
+[MIT](LICENSE) © 2026 Sword00
