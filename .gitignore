@@ -1,0 +1,16 @@
+# 构建产物
+*.exe
+*.o
+*.obj
+src/res.o
+
+# 截图与临时抓屏（docs/ 下的图是要提交的）
+*.bmp
+tools/*.png
+tools/*.bmp
+tools/*.exe
+
+# 系统杂项
+Thumbs.db
+desktop.ini
+.DS_Store
