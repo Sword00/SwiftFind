@@ -27,6 +27,45 @@ int wmain(int argc, wchar_t** argv) {
         return 0;
     }
 
+    if (argc >= 3 && wcscmp(argv[1], L"--wheel") == 0) {
+        int notches = (argc >= 4) ? _wtoi(argv[3]) : 3;
+        int dir = wcscmp(argv[2], L"up") == 0 ? 1 : -1;
+        Sleep(200);
+        for (int i = 0; i < notches; ++i) {
+            INPUT in = {};
+            in.type = INPUT_MOUSE;
+            in.mi.dwFlags = MOUSEEVENTF_WHEEL;
+            in.mi.mouseData = (DWORD)(dir * WHEEL_DELTA);
+            SendInput(1, &in, sizeof(INPUT));
+            Sleep(30);
+        }
+        wprintf(L"wheel %ls x%d\n", dir > 0 ? L"up" : L"down", notches);
+        return 0;
+    }
+
+    if (argc >= 6 && wcscmp(argv[1], L"--drag") == 0) {
+        int x1 = _wtoi(argv[2]), y1 = _wtoi(argv[3]);
+        int x2 = _wtoi(argv[4]), y2 = _wtoi(argv[5]);
+        Sleep(250);
+        SetCursorPos(x1, y1);
+        Sleep(120);
+        INPUT dn = {};
+        dn.type = INPUT_MOUSE;
+        dn.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+        SendInput(1, &dn, sizeof(INPUT));
+        for (int i = 1; i <= 12; ++i) {
+            Sleep(25);
+            SetCursorPos(x1 + (x2 - x1) * i / 12, y1 + (y2 - y1) * i / 12);
+        }
+        Sleep(120);
+        INPUT up = {};
+        up.type = INPUT_MOUSE;
+        up.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+        SendInput(1, &up, sizeof(INPUT));
+        wprintf(L"dragged %d,%d -> %d,%d\n", x1, y1, x2, y2);
+        return 0;
+    }
+
     if (argc >= 2 && wcscmp(argv[1], L"--clear") == 0) {
         Sleep(300);
         INPUT in[4] = {};

@@ -96,6 +96,8 @@ struct Theme {
     COLORREF knob;
     COLORREF segBg;
     COLORREF segBorder;
+    COLORREF scrollThumb;
+    COLORREF scrollThumbHot;
 };
 
 static Theme  g_theme;
@@ -150,6 +152,8 @@ static void applyTheme() {
         g_theme.knob            = RGB(236, 239, 244);
         g_theme.segBg           = RGB(44, 48, 56);
         g_theme.segBorder       = RGB(62, 67, 76);
+        g_theme.scrollThumb     = RGB(76, 82, 92);
+        g_theme.scrollThumbHot  = RGB(108, 116, 128);
     } else {
         g_theme.bg              = RGB(252, 252, 253);
         g_theme.border          = RGB(214, 218, 224);
@@ -165,6 +169,8 @@ static void applyTheme() {
         g_theme.knob            = RGB(255, 255, 255);
         g_theme.segBg           = RGB(240, 242, 246);
         g_theme.segBorder       = RGB(220, 224, 231);
+        g_theme.scrollThumb     = RGB(202, 207, 215);
+        g_theme.scrollThumbHot  = RGB(170, 177, 188);
     }
 
     if (g_brBg) { DeleteObject(g_brBg); g_brBg = nullptr; }
@@ -1008,12 +1014,14 @@ static void regSetInt(const wchar_t* name, int val) {
     RegCloseKey(k);
 }
 
+// The list has no WS_VSCROLL: uxtheme keeps the classic scrollbar track light
+// even after DarkMode_Explorer is applied (verified by screenshot), which looks
+// jarring against the dark list. So we paint a slim rounded thumb ourselves on
+// the right edge of the client area, in the same GDI+ style as the toggles.
+
 // Recompute the palette and repaint everything that draws with it.
 static void refreshThemeWindows() {
     applyTheme();
-
-    if (g_hList)
-        SetWindowTheme(g_hList, g_dark ? L"DarkMode_Explorer" : L"", nullptr);
 
     if (g_hwnd) {
         InvalidateRect(g_hwnd, nullptr, TRUE);
@@ -1530,8 +1538,174 @@ static LRESULT CALLBACK EditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 // Right-click on the results list must reach the app menu too - an owner-drawn
 // LISTBOX swallows it otherwise, so the menu would only work on the text field.
 static WNDPROC g_listProc = nullptr;
+
+// ---- custom scrollbar ------------------------------------------------------
+struct SbGeom {
+    int x, w;      // thumb rect
+    int top, h;
+    int page;      // fully visible rows
+    int maxTop;    // upper bound for LB_SETTOPINDEX
+};
+
+static bool sbGeom(HWND list, SbGeom& g) {
+    int n = (int)SendMessageW(list, LB_GETCOUNT, 0, 0);
+    if (n <= 0) return false;
+
+    RECT rc;
+    GetClientRect(list, &rc);
+    int ch = rc.bottom - rc.top;
+    int ih = (int)SendMessageW(list, LB_GETITEMHEIGHT, 0, 0);
+    if (ch <= 0 || ih <= 0) return false;
+
+    int page = ch / ih;
+    if (page < 1) page = 1;
+    if (n <= page) return false;               // everything fits, no thumb
+
+    int top = (int)SendMessageW(list, LB_GETTOPINDEX, 0, 0);
+    g.maxTop = n - page;
+    if (top > g.maxTop) top = g.maxTop;
+    if (top < 0) top = 0;
+
+    g.page = page;
+    int track = ch - S(8);
+    g.h = track * page / n;
+    if (g.h < S(28)) g.h = S(28);
+    if (g.h > track) g.h = track;
+    g.top = S(4) + (track - g.h) * top / (g.maxTop ? g.maxTop : 1);
+
+    g.w = S(6);
+    g.x = rc.right - S(10);
+    return true;
+}
+
+static void drawScrollbar(HDC dc, HWND list, bool hot) {
+    SbGeom g;
+    if (!sbGeom(list, g)) return;
+    Gdiplus::Graphics gfx(dc);
+    aaBegin(gfx);
+    Gdiplus::SolidBrush b(toGp(hot ? g_theme.scrollThumbHot : g_theme.scrollThumb));
+    Gdiplus::GraphicsPath p;
+    aaPath(p, g.x, g.top, g.w, g.h, g.w / 2);
+    gfx.FillPath(&b, &p);
+}
+
+static bool g_sbDrag     = false;
+static bool g_sbHot      = false;
+static bool g_sbTracking = false;   // TrackMouseEvent armed, so TME_LEAVE arrives
+static int  g_sbGrab     = 0;       // pointer offset inside the thumb
+static int  g_sbDragH    = 0;       // thumb height frozen at drag start
+static int  g_sbDragMx   = 0;       // maxTop frozen at drag start
+
+static void sbDragTo(HWND list, int y) {
+    RECT rc;
+    GetClientRect(list, &rc);
+    int span = (rc.bottom - rc.top) - S(8) - g_sbDragH;
+    if (span <= 0) return;
+    int t = (y - g_sbGrab - S(4)) * g_sbDragMx / span;
+    if (t < 0) t = 0;
+    if (t > g_sbDragMx) t = g_sbDragMx;
+    SendMessageW(list, LB_SETTOPINDEX, t, 0);
+}
+
 static LRESULT CALLBACK ListProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    if (msg == WM_RBUTTONUP) { showAppMenu(true); return 0; }
+    switch (msg) {
+        case WM_RBUTTONUP:
+            showAppMenu(true);
+            return 0;
+
+        // comctl32 paints the items, so the thumb goes on top afterwards.
+        // Calling GetDC once the default handler has validated the window is
+        // enough - no second WM_PAINT is generated, so nothing flickers.
+        //
+        // The gutter is added to the update region first: scrolling only
+        // invalidates the rows that changed, so a thumb drawn for an earlier
+        // position would otherwise be left behind as a ghost.
+        case WM_PAINT: {
+            RECT cr;
+            GetClientRect(hwnd, &cr);
+            RECT gutter = { cr.right - S(12), cr.top, cr.right, cr.bottom };
+            InvalidateRect(hwnd, &gutter, FALSE);
+
+            LRESULT r = CallWindowProcW(g_listProc, hwnd, msg, wp, lp);
+            HDC dc = GetDC(hwnd);
+            drawScrollbar(dc, hwnd, g_sbDrag || g_sbHot);
+            ReleaseDC(hwnd, dc);
+            return r;
+        }
+
+        case WM_MOUSEMOVE: {
+            if (g_sbDrag) { sbDragTo(hwnd, GET_Y_LPARAM(lp)); return 0; }
+            SbGeom g;
+            bool inGutter = sbGeom(hwnd, g) && GET_X_LPARAM(lp) >= g.x - S(4);
+            if (inGutter != g_sbHot) {
+                g_sbHot = inGutter;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            if (!g_sbTracking) {
+                TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+                TrackMouseEvent(&tme);
+                g_sbTracking = true;
+            }
+            break;
+        }
+
+        case WM_MOUSELEAVE:
+            g_sbTracking = false;
+            if (g_sbHot) { g_sbHot = false; InvalidateRect(hwnd, nullptr, FALSE); }
+            break;
+
+        case WM_LBUTTONDOWN: {
+            SbGeom g;
+            if (sbGeom(hwnd, g) && GET_X_LPARAM(lp) >= g.x - S(4)) {
+                int y = GET_Y_LPARAM(lp);
+                if (y < g.top || y >= g.top + g.h) {
+                    int top = (int)SendMessageW(hwnd, LB_GETTOPINDEX, 0, 0);
+                    top += (y < g.top) ? -g.page : g.page;
+                    if (top < 0) top = 0;
+                    if (top > g.maxTop) top = g.maxTop;
+                    SendMessageW(hwnd, LB_SETTOPINDEX, top, 0);
+                    return 0;
+                }
+                g_sbDrag   = true;
+                g_sbGrab   = y - g.top;
+                g_sbDragH  = g.h;
+                g_sbDragMx = g.maxTop;
+                SetCapture(hwnd);
+                return 0;
+            }
+            break;
+        }
+
+        case WM_LBUTTONUP:
+            if (g_sbDrag) {
+                g_sbDrag = false;
+                ReleaseCapture();
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
+            }
+            break;
+
+        // The window hides on blur, so a drag can be cut short by the capture
+        // going away without a matching WM_LBUTTONUP.
+        case WM_CAPTURECHANGED:
+            if (g_sbDrag) {
+                g_sbDrag = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            break;
+
+        // Without WS_VSCROLL there is no native wheel handling left.
+        case WM_MOUSEWHEEL: {
+            SbGeom g;
+            if (!sbGeom(hwnd, g)) return 0;
+            int top = (int)SendMessageW(hwnd, LB_GETTOPINDEX, 0, 0);
+            top += (GET_WHEEL_DELTA_WPARAM(wp) > 0) ? -3 : 3;
+            if (top < 0) top = 0;
+            if (top > g.maxTop) top = g.maxTop;
+            SendMessageW(hwnd, LB_SETTOPINDEX, top, 0);
+            return 0;
+        }
+    }
     return CallWindowProcW(g_listProc, hwnd, msg, wp, lp);
 }
 
@@ -1559,7 +1733,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                                       0, 0, 10, 10, hwnd, (HMENU)ID_EDIT, g_hInst, nullptr);
             g_hList = CreateWindowExW(0, L"LISTBOX", L"",
                                       WS_CHILD | WS_VISIBLE | LBS_OWNERDRAWFIXED | LBS_NOTIFY |
-                                      LBS_NOINTEGRALHEIGHT | WS_VSCROLL,
+                                      LBS_NOINTEGRALHEIGHT,
                                       0, 0, 10, 10, hwnd, (HMENU)ID_LIST, g_hInst, nullptr);
 
             SendMessageW(g_hEdit, WM_SETFONT, (WPARAM)g_fEdit, TRUE);
@@ -1673,7 +1847,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 name.resize(name.size() - 4);
 
             int tx = d->rcItem.left + S(16) + isz + S(12);
-            int tw = d->rcItem.right - tx - S(12);
+            int tw = d->rcItem.right - tx - S(22);   // keep clear of the thumb
 
             RECT rn = { tx, d->rcItem.top + S(6), tx + tw, d->rcItem.top + S(6) + S(20) };
             SetTextColor(d->hDC, g_theme.text);
