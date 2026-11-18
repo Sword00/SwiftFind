@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-# Build SwiftFind. Requires w64devkit (portable MinGW-w64).
-# Override the toolchain location with W64DEVKIT=/path/to/w64devkit
+# Build SwiftFind. Requires a MinGW-w64 g++ (w64devkit is the easy way).
+#
+#   ./build.sh                                   # g++ 已在 PATH 上
+#   W64DEVKIT=/path/to/w64devkit ./build.sh      # 指定 w64devkit 根目录
 set -e
 
-TOOLCHAIN="${W64DEVKIT:-/c/Users/Z/w64devkit/w64devkit}"
-export PATH="$TOOLCHAIN/bin:$PATH"
+if [ -n "$W64DEVKIT" ]; then
+    export PATH="$W64DEVKIT/bin:$PATH"
+fi
 
 cd "$(dirname "$0")/src"
 
-command -v g++ >/dev/null || { echo "g++ not found. Set W64DEVKIT."; exit 1; }
+command -v g++ >/dev/null || {
+    echo "找不到 g++。"
+    echo "安装 w64devkit，把它的 bin 加进 PATH；或运行 W64DEVKIT=/path/to/w64devkit ./build.sh"
+    exit 1
+}
 
 windres -I. res.rc -O coff -o res.o
 
