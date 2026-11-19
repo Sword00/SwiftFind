@@ -9,7 +9,7 @@
 
 没有主界面，没有启动动画，也不占托盘。平时它等于不存在，你要用它的时候按两下 Ctrl。
 
-**[下载 v1.0.0](https://github.com/Sword00/SwiftFind/releases/latest)** —— 217 KB，Windows 10 / 11，双击即用。
+**[下载最新版](https://github.com/Sword00/SwiftFind/releases/latest)** —— 217 KB，Windows 10 / 11，双击即用。
 
 ![SwiftFind 搜索框](docs/screenshot.png)
 
@@ -49,7 +49,7 @@
 
 ## 下载与编译
 
-到 [Releases](https://github.com/Sword00/SwiftFind/releases/latest) 里下 `SwiftFind-v1.0.0.exe`，就一个文件，双击即用，不需要安装程序。
+到 [Releases](https://github.com/Sword00/SwiftFind/releases/latest) 里下最新的 `SwiftFind-v*.exe`，就一个文件，双击即用，不需要安装程序。
 
 想自己编也行——需要 MinGW-w64，最省事的是 [w64devkit](https://github.com/skeeto/w64devkit)，解压就能用：
 
