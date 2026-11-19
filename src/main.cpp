@@ -57,6 +57,11 @@ static HFONT       g_fTitle     = nullptr;
 static int         g_dpi        = 96;
 static HHOOK       g_hook       = nullptr;
 static DWORD       g_lastCtrl   = 0;
+static DWORD       g_ctrlAt     = 0;       // 最近一次 Ctrl 按下（含自动重复）
+static bool        g_ctrlDown   = false;   // Ctrl 当前是否真的按着
+#ifdef SF_HOOK_DEBUG
+static int         g_dbgToggle  = 0;       // 仅供 --hooktest 自检统计
+#endif
 static bool        g_visible    = false;
 static bool        g_trayAdded  = false;
 static bool        g_showTray   = true;   // 设置项：是否显示托盘图标
@@ -1944,20 +1949,39 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 // ---------------------------------------------------------------- keyboard hook
 static LRESULT CALLBACK LLKeyboard(int code, WPARAM wp, LPARAM lp) {
     if (code == HC_ACTION && g_hwnd) {
-        bool down = (wp == WM_KEYDOWN || wp == WM_SYSKEYDOWN);
-        if (down) {
-            KBDLLHOOKSTRUCT* k = (KBDLLHOOKSTRUCT*)lp;
-            if (k->vkCode == VK_LCONTROL || k->vkCode == VK_RCONTROL) {
-                DWORD now = GetTickCount();
-                if (g_lastCtrl && (now - g_lastCtrl) < 450) {
-                    g_lastCtrl = 0;
-                    PostMessageW(g_hwnd, WM_TOGGLE, 0, 0);
-                } else {
-                    g_lastCtrl = now;
-                }
+        KBDLLHOOKSTRUCT* k = (KBDLLHOOKSTRUCT*)lp;
+        bool isCtrl = (k->vkCode == VK_LCONTROL || k->vkCode == VK_RCONTROL);
+
+        if (wp == WM_KEYDOWN || wp == WM_SYSKEYDOWN) {
+            if (!isCtrl) {
+                g_lastCtrl = 0;            // any other key cancels the sequence
             } else {
-                g_lastCtrl = 0;
+                DWORD now = GetTickCount();
+
+                // Holding Ctrl fires a WM_KEYDOWN every ~30 ms. Counting those
+                // as taps made one long press look like a double-tap, so
+                // repeats are dropped here: a real second press only arrives
+                // after a key-up. The 1 s guard also un-wedges the state if a
+                // key-up ever gets skipped (the hook is dropped when the UI
+                // thread stalls).
+                bool repeat = g_ctrlDown && (now - g_ctrlAt) < 1000;
+                g_ctrlAt = now;
+
+                if (!repeat) {
+                    g_ctrlDown = true;
+                    if (g_lastCtrl && (now - g_lastCtrl) < 450) {
+                        g_lastCtrl = 0;
+#ifdef SF_HOOK_DEBUG
+                        ++g_dbgToggle;
+#endif
+                        PostMessageW(g_hwnd, WM_TOGGLE, 0, 0);
+                    } else {
+                        g_lastCtrl = now;
+                    }
+                }
             }
+        } else if ((wp == WM_KEYUP || wp == WM_SYSKEYUP) && isCtrl) {
+            g_ctrlDown = false;
         }
     }
     return CallNextHookEx(nullptr, code, wp, lp);
@@ -2007,8 +2031,62 @@ static void attachConsole() {
     freopen("CONOUT$", "w", stderr);
 }
 
-static int cliSearch(const std::wstring& q) {
-    auto ix = getIndex();
+#ifdef SF_HOOK_DEBUG
+// Drives the real hook callback with synthetic events, so the double-Ctrl state
+// machine can be checked without injecting input into the system.
+static void hookTest() {
+    attachConsole();
+    KBDLLHOOKSTRUCT ck{};
+    ck.vkCode = VK_LCONTROL;
+
+    auto send = [&](WPARAM msg, int waitAfter) {
+        LLKeyboard(HC_ACTION, msg, (LPARAM)&ck);
+        if (waitAfter) Sleep(waitAfter);
+    };
+    auto down = [&](int w) { send(WM_KEYDOWN, w); };
+    auto up   = [&](int w) { send(WM_KEYUP,   w); };
+
+    g_dbgToggle = 0;
+    down(0); up(90); down(0); up(0);
+    wprintf(L"[1] 双击 Ctrl              toggles=%d  期望 1\n", g_dbgToggle);
+
+    g_dbgToggle = 0;
+    Sleep(600);
+    for (int i = 0; i < 15; ++i) down(30);   // 450 ms of auto-repeat
+    up(0);
+    wprintf(L"[2] 按住 450ms 不放        toggles=%d  期望 0\n", g_dbgToggle);
+
+    g_dbgToggle = 0;
+    Sleep(600);
+    down(0); up(80);
+    for (int i = 0; i < 10; ++i) down(30);   // 第二次按住不动
+    up(0);
+    wprintf(L"[3] 轻按后接着按住         toggles=%d  期望 1（只触发一次）\n", g_dbgToggle);
+
+    g_dbgToggle = 0;
+    Sleep(600);
+    for (int i = 0; i < 25; ++i) down(30);   // 750 ms hold
+    up(60); down(0); up(0);
+    wprintf(L"[4] 长按 750ms 后马上轻按  toggles=%d  期望 0\n", g_dbgToggle);
+
+    g_dbgToggle = 0;
+    Sleep(600);
+    down(0); up(60);
+    KBDLLHOOKSTRUCT ak{};
+    ak.vkCode = 'A';
+    LLKeyboard(HC_ACTION, WM_KEYDOWN, (LPARAM)&ak);
+    LLKeyboard(HC_ACTION, WM_KEYUP,   (LPARAM)&ak);
+    down(0); up(0);
+    wprintf(L"[5] Ctrl、A、Ctrl          toggles=%d  期望 0\n", g_dbgToggle);
+
+    g_dbgToggle = 0;
+    Sleep(600);
+    down(0); up(60); down(0); up(0); down(0); up(0);
+    wprintf(L"[6] 连按三下               toggles=%d  期望 1\n", g_dbgToggle);
+}
+#endif
+
+static int cliSearch(const std::wstring& q) {    auto ix = getIndex();
     if (!ix) {
         printf("index missing, building...\n");
         buildIndexBlocking(true);
@@ -2178,6 +2256,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR lpCmdLine, int) {
     layoutChildren(w, h);
     if (g_showTray) addTray();
     g_hook = SetWindowsHookExW(WH_KEYBOARD_LL, LLKeyboard, hInst, 0);
+#ifdef SF_HOOK_DEBUG
+    if (wcsstr(GetCommandLineW(), L"--hooktest")) { hookTest(); return 0; }
+#endif
     SetTimer(g_hwnd, 9, 400, nullptr);
 
     // load index, build if absent

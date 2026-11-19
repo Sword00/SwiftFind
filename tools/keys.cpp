@@ -66,6 +66,29 @@ int wmain(int argc, wchar_t** argv) {
         return 0;
     }
 
+    if (argc >= 4 && wcscmp(argv[1], L"--repeat") == 0) {
+        // Mimics keyboard auto-repeat: n key-downs with no key-up in between,
+        // which is exactly what holding a key produces at the hook level.
+        WORD vk = (WORD)wcstoul(argv[2], nullptr, 16);
+        int n = _wtoi(argv[3]);
+        int gap = (argc >= 5) ? _wtoi(argv[4]) : 30;
+        Sleep(300);
+        for (int i = 0; i < n; ++i) {
+            INPUT in = {};
+            in.type = INPUT_KEYBOARD;
+            in.ki.wVk = vk;
+            SendInput(1, &in, sizeof(INPUT));
+            Sleep(gap);
+        }
+        INPUT up = {};
+        up.type = INPUT_KEYBOARD;
+        up.ki.wVk = vk;
+        up.ki.dwFlags = KEYEVENTF_KEYUP;
+        SendInput(1, &up, sizeof(INPUT));
+        wprintf(L"repeated vk 0x%02X x%d, gap %dms, then key-up\n", vk, n, gap);
+        return 0;
+    }
+
     if (argc >= 2 && wcscmp(argv[1], L"--clear") == 0) {
         Sleep(300);
         INPUT in[4] = {};
