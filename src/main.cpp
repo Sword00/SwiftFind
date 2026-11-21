@@ -80,6 +80,10 @@ static std::atomic<uint64_t> g_buildCount{ 0 };
 static std::atomic<bool>     g_building{ false };
 static std::atomic<int>      g_buildPhase{ 0 };   // 0 idle 1 scanning 2 saving
 
+static std::atomic<uint64_t> g_builtAt{ 0 };      // 索引文件里的构建时间（FILETIME）
+static DWORD                 g_lastAutoScan = 0;  // 上次"搜不到"补扫的 tick，用于限流
+static bool                  g_missScan    = false;  // 这次重建是搜不到触发的
+
 static inline int S(int v) { return MulDiv(v, g_dpi, 96); }
 
 static std::wstring dataDir();   // defined near the bottom
@@ -412,6 +416,7 @@ static bool saveIndex(const Index& ix) {
     FILETIME ft;
     GetSystemTimeAsFileTime(&ft);
     hd.builtAt = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+    g_builtAt.store(hd.builtAt);
 
     DWORD wrote = 0;
     bool ok = WriteFile(h, &hd, sizeof(hd), &wrote, nullptr)
@@ -446,6 +451,8 @@ static std::shared_ptr<Index> loadIndex() {
         return nullptr;
     }
 
+    g_builtAt.store(hd.builtAt);
+
     auto ix = std::make_shared<Index>();
     ix->dirArena.resize((size_t)hd.dirArenaSize);
     ix->nameArena.resize((size_t)hd.nameArenaSize);
@@ -459,6 +466,22 @@ static std::shared_ptr<Index> loadIndex() {
     CloseHandle(h);
     if (!ok) return nullptr;
     return ix;
+}
+
+// ---------------------------------------------------------------- staleness
+// 索引文件头里记着构建时间（FILETIME，UTC）。据此判断索引有多旧，决定要不要
+// 在后台悄悄刷一遍，省得让人自己记得去点「重建索引」。
+static const uint64_t kAutoScanAge = 6ULL * 60 * 60 * 10000000ULL;   // 6 小时
+static const uint64_t kMissScanAge = 10ULL * 60 * 10000000ULL;       // 10 分钟
+static const DWORD    kMissScanGap = 5u * 60u * 1000u;               // 补扫最短间隔
+
+static uint64_t indexAge() {
+    uint64_t built = g_builtAt.load();
+    if (!built) return UINT64_MAX;            // 不知道，当作很旧
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    uint64_t now = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+    return now > built ? now - built : 0;
 }
 
 // Raw Win32 threads instead of std::thread: the libstdc++ thread wrapper drags
@@ -865,6 +888,7 @@ static std::wstring withCommas(uint64_t v) {
 
 static std::wstring footerText() {
     if (g_building.load()) {
+        if (g_missScan) return L"没有找到   ·   正在后台更新索引，稍等…";
         if (g_buildPhase.load() == 2) return L"正在保存索引…";
         return L"正在索引 " + withCommas(g_buildCount.load()) + L" 个对象…";
     }
@@ -953,17 +977,22 @@ static void setStartup(bool on) {
     RegCloseKey(k);
 }
 
-static DWORD WINAPI rebuildProc(void*) {
+// p != nullptr 表示这是自动触发的后台刷新：把线程降到后台模式，CPU 和磁盘
+// IO 都只在系统空闲时才跑，免得扫盘时把前台程序拖慢。
+static DWORD WINAPI rebuildProc(void* p) {
+    if (p) SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
     buildIndexBlocking(true);
     if (g_hwnd) PostMessageW(g_hwnd, WM_REBUILT, 0, 0);
     return 0;
 }
 
-static void startRebuildThread() {
-    if (g_building.exchange(true)) return;
+static bool startRebuildThread(bool background = false) {
+    if (g_building.exchange(true)) return false;
     g_building.store(false);
-    HANDLE h = CreateThread(nullptr, 0, rebuildProc, nullptr, 0, nullptr);
+    if (g_hwnd) SetTimer(g_hwnd, 9, 400, nullptr);   // 让底部状态栏跟着动
+    HANDLE h = CreateThread(nullptr, 0, rebuildProc, background ? (void*)1 : nullptr, 0, nullptr);
     if (h) CloseHandle(h);   // detached: the thread signals completion via WM_REBUILT
+    return h != nullptr;
 }
 
 static void showSettings();
@@ -1509,6 +1538,15 @@ static void refreshResults() {
 
     bool emptyQuery = (buf[0] == 0);
 
+    // 搜不到东西，可能只是索引过期了（新建的文件还没进去）。索引超过 10 分钟
+    // 就在后台补扫一次，两次补扫之间至少隔 5 分钟，免得每敲一个字都扫盘。
+    if (!emptyQuery && g_res.empty() && !g_building.load()
+        && indexAge() > kMissScanAge
+        && (DWORD)(GetTickCount() - g_lastAutoScan) > kMissScanGap) {
+        g_lastAutoScan = GetTickCount();
+        if (startRebuildThread(true)) g_missScan = true;
+    }
+
     // list only when there is something to list; otherwise the parent paints
     // the "no match" hint itself
     ShowWindow(g_hList, g_res.empty() ? SW_HIDE : SW_SHOW);
@@ -1945,6 +1983,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
 
         case WM_REBUILT:
+            g_missScan = false;
             if (g_visible) refreshResults();
             return 0;
 
@@ -2291,10 +2330,14 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR lpCmdLine, int) {
 #endif
     SetTimer(g_hwnd, 9, 400, nullptr);
 
-    // load index, build if absent
+    // load index, build if absent; refresh quietly if it is getting old
     auto ix = loadIndex();
-    if (ix) setIndex(ix);
-    else startRebuildThread();
+    if (ix) {
+        setIndex(ix);
+        if (indexAge() > kAutoScanAge) startRebuildThread(true);
+    } else {
+        startRebuildThread();
+    }
 
     if (showAtStart) showWindow();
     if (settingsAtStart) showSettings();
