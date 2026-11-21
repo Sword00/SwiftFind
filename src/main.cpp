@@ -22,6 +22,8 @@
 
 #include <string>
 #include <vector>
+
+#include "version.h"
 #include <memory>
 
 #include <atomic>
@@ -1374,7 +1376,9 @@ static LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) 
             SelectObject(dc, g_fPath);
             SetTextColor(dc, g_theme.textDim);
             RECT ar = { S(24), g_sr.aboutY, rc.right - S(24), g_sr.aboutY + S(20) };
-            DrawTextW(dc, L"SwiftFind 1.0.0   ·   双击 Ctrl 唤出搜索框", -1, &ar,
+            std::wstring about = std::wstring(L"SwiftFind ") + SF_VER_STRW +
+                                 L"   ·   双击 Ctrl 唤出搜索框";
+            DrawTextW(dc, about.c_str(), -1, &ar,
                       DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
             SelectObject(dc, of);

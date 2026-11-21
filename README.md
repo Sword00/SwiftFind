@@ -2,14 +2,14 @@
 
 [![release](https://img.shields.io/github/v/release/Sword00/SwiftFind)](https://github.com/Sword00/SwiftFind/releases/latest)
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
-![size](https://img.shields.io/badge/size-218%20KB-brightgreen)
+![size](https://img.shields.io/badge/size-219%20KB-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
 **双击 Ctrl，弹出一个搜索框；输入几个字母，全盘的文件和应用都在里面；回车打开。**
 
 没有主界面，没有启动动画，也不占托盘。平时它等于不存在，你要用它的时候按两下 Ctrl。
 
-**[下载最新版](https://github.com/Sword00/SwiftFind/releases/latest)** —— 218 KB，Windows 10 / 11，双击即用。
+**[下载最新版](https://github.com/Sword00/SwiftFind/releases/latest)** —— 219 KB，Windows 10 / 11，双击即用。
 
 ![SwiftFind 搜索框](docs/screenshot.png)
 
@@ -20,7 +20,7 @@
 - **快到不用等** —— 边打边搜，4~10 毫秒出结果，应用和 exe 排在前面
 - **带真实图标** —— 用的是系统里那个文件自己的图标，不是千篇一律的默认图
 - **跟你的主题走** —— 深色、浅色、跟随系统，切换即时生效
-- **只有一个文件** —— 218 KB 的 exe，拷到任何 Windows 10/11 上双击就能跑，不用装运行库
+- **只有一个文件** —— 219 KB 的 exe，拷到任何 Windows 10/11 上双击就能跑，不用装运行库
 
 ## 怎么用
 
@@ -68,7 +68,7 @@ W64DEVKIT=/path/to/w64devkit ./build.sh
 
 **搜索是多线程暴力扫。** 每个核心扫一段，没有倒排索引也没有分词——反正只有 49 万条，扫一遍就是几毫秒的事。
 
-**体积上抠得很细。** 218 KB 里只有 46 KB 是自己的代码，剩下全是静态链接的 C++ 标准库。中间有几个意外发现：`std::thread` 只用了三处，却把整套 pthread 拖进来 27 KB；`swprintf` 只调了两次，却带进整个浮点格式化（7 KB）。换成 Win32 API 和手写数字转换之后，整体小了 27%。
+**体积上抠得很细。** 219 KB 里只有 46 KB 是自己的代码，剩下全是静态链接的 C++ 标准库。中间有几个意外发现：`std::thread` 只用了三处，却把整套 pthread 拖进来 27 KB；`swprintf` 只调了两次，却带进整个浮点格式化（7 KB）。换成 Win32 API 和手写数字转换之后，整体小了 27%。
 
 **索引过期了会自己刷，不用你记。** 索引文件头里记着构建时间。启动时如果索引超过 6 小时，就在后台重建一遍；搜一个词完全没结果、而索引又超过 10 分钟时，也会补扫一次（两次补扫之间至少隔 5 分钟，免得每敲一个字都扫盘）。这两种都跑在后台线程里，用 `THREAD_MODE_BACKGROUND_BEGIN` 把 CPU 和磁盘 IO 都降到最低优先级，不会把前台程序拖慢。
 
