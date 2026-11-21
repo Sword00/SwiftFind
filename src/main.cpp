@@ -916,6 +916,26 @@ static bool startupEnabled() {
     return on;
 }
 
+// 自启动项里记的路径（去掉外层引号）；没开或读不到就是空串。
+static std::wstring startupPath() {
+    HKEY k;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                      L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                      0, KEY_READ, &k) != ERROR_SUCCESS) return L"";
+    wchar_t val[MAX_PATH * 2];
+    DWORD cb = sizeof(val), type = 0;
+    std::wstring out;
+    if (RegQueryValueExW(k, APP_NAME, nullptr, &type, (LPBYTE)val, &cb) == ERROR_SUCCESS) {
+        out = val;
+        if (out.size() >= 2 && out.front() == L'"') {
+            size_t e = out.find(L'"', 1);
+            out = (e == std::wstring::npos) ? out.substr(1) : out.substr(1, e - 1);
+        }
+    }
+    RegCloseKey(k);
+    return out;
+}
+
 static void setStartup(bool on) {
     HKEY k;
     if (RegOpenKeyExW(HKEY_CURRENT_USER,
@@ -2255,6 +2275,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR lpCmdLine, int) {
 
     layoutChildren(w, h);
     if (g_showTray) addTray();
+
+    // 自启动项存的是绝对路径。exe 被挪到别处之后，这一项就指向一个不存在的文件，
+    // 开机时静默失败，而设置里那个开关还显示「开」——很容易让人以为是程序坏了。
+    // 只在指向的文件确实不存在时才改写，免得跑一份临时副本就把路径抢过去。
+    {
+        std::wstring sp = startupPath();
+        if (!sp.empty() && GetFileAttributesW(sp.c_str()) == INVALID_FILE_ATTRIBUTES)
+            setStartup(true);
+    }
+
     g_hook = SetWindowsHookExW(WH_KEYBOARD_LL, LLKeyboard, hInst, 0);
 #ifdef SF_HOOK_DEBUG
     if (wcsstr(GetCommandLineW(), L"--hooktest")) { hookTest(); return 0; }
