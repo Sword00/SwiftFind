@@ -2,14 +2,14 @@
 
 [![release](https://img.shields.io/github/v/release/Sword00/SwiftFind)](https://github.com/Sword00/SwiftFind/releases/latest)
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6)
-![size](https://img.shields.io/badge/size-217%20KB-brightgreen)
+![size](https://img.shields.io/badge/size-218%20KB-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
 **双击 Ctrl，弹出一个搜索框；输入几个字母，全盘的文件和应用都在里面；回车打开。**
 
 没有主界面，没有启动动画，也不占托盘。平时它等于不存在，你要用它的时候按两下 Ctrl。
 
-**[下载最新版](https://github.com/Sword00/SwiftFind/releases/latest)** —— 217 KB，Windows 10 / 11，双击即用。
+**[下载最新版](https://github.com/Sword00/SwiftFind/releases/latest)** —— 218 KB，Windows 10 / 11，双击即用。
 
 ![SwiftFind 搜索框](docs/screenshot.png)
 
@@ -20,7 +20,7 @@
 - **快到不用等** —— 边打边搜，4~10 毫秒出结果，应用和 exe 排在前面
 - **带真实图标** —— 用的是系统里那个文件自己的图标，不是千篇一律的默认图
 - **跟你的主题走** —— 深色、浅色、跟随系统，切换即时生效
-- **只有一个文件** —— 217 KB 的 exe，拷到任何 Windows 10/11 上双击就能跑，不用装运行库
+- **只有一个文件** —— 218 KB 的 exe，拷到任何 Windows 10/11 上双击就能跑，不用装运行库
 
 ## 怎么用
 
@@ -40,7 +40,7 @@
 
 搜索框里按 `Ctrl` + `,`，或者右键点「设置…」。托盘图标右键也能进——如果你没把托盘图标关掉的话。
 
-- **开机自动启动** —— 登录后自动待命，不用每次手动开
+- **开机自动启动** —— 登录后自动待命，不用每次手动开。exe 挪了位置也不用管，下次打开会自己把路径改过来
 - **失焦自动隐藏** —— 点到别处就收起；关掉它就得自己按 Esc
 - **跟随鼠标位置打开** —— 窗口出现在鼠标旁边，而不是屏幕正中
 - **显示托盘图标** —— 不想要托盘里多个图标可以关掉
@@ -68,7 +68,7 @@ W64DEVKIT=/path/to/w64devkit ./build.sh
 
 **搜索是多线程暴力扫。** 每个核心扫一段，没有倒排索引也没有分词——反正只有 49 万条，扫一遍就是几毫秒的事。
 
-**体积上抠得很细。** 217 KB 里只有 46 KB 是自己的代码，剩下全是静态链接的 C++ 标准库。中间有几个意外发现：`std::thread` 只用了三处，却把整套 pthread 拖进来 27 KB；`swprintf` 只调了两次，却带进整个浮点格式化（7 KB）。换成 Win32 API 和手写数字转换之后，整体小了 29%。
+**体积上抠得很细。** 218 KB 里只有 46 KB 是自己的代码，剩下全是静态链接的 C++ 标准库。中间有几个意外发现：`std::thread` 只用了三处，却把整套 pthread 拖进来 27 KB；`swprintf` 只调了两次，却带进整个浮点格式化（7 KB）。换成 Win32 API 和手写数字转换之后，整体小了 29%。
 
 **图标是算出来的，不是画的。** 用有向距离场逐像素生成，任意尺寸都清晰。16px 下会去掉闪电只留镜片——否则闪电缩成一个小点，镜片看起来像破了个口。
 
